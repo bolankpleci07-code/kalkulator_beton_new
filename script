@@ -1,0 +1,225 @@
+// Database Koefisien Campuran Beton per 1 m3 (Referensi SNI 7394:2008)
+const sniMixData = {
+    K175: { cement: 326, sand: 760, gravel: 1029, water: 215, label: "K-175 (fc' 14.5 MPa)" },
+    K225: { cement: 371, sand: 698, gravel: 1047, water: 215, label: "K-225 (fc' 18.6 MPa)" },
+    K250: { cement: 384, sand: 692, gravel: 1039, water: 215, label: "K-250 (fc' 20.7 MPa)" },
+    K300: { cement: 413, sand: 681, gravel: 1021, water: 215, label: "K-300 (fc' 24.9 MPa)" }
+};
+
+let latestCalculation = {};
+
+// Format Angka ke Rupiah
+function formatRupiah(num) {
+    return new Intl.NumberFormat('id-ID', {
+        style: 'currency',
+        currency: 'IDR',
+        maximumFractionDigits: 0
+    }).format(num);
+}
+
+// Ubah Kolom Input Dimensi Sesuai Elemen Struktur
+function updateFormFields() {
+    const type = document.getElementById('elementType').value;
+    const container = document.getElementById('dimensionInputs');
+    
+    if (type === 'slab') {
+        container.innerHTML = `
+            <div>
+                <label class="input-label">Panjang (meter)</label>
+                <input type="number" id="dim1" value="6" step="0.01" oninput="calculateAll()" class="input-field">
+            </div>
+            <div>
+                <label class="input-label">Lebar (meter)</label>
+                <input type="number" id="dim2" value="4" step="0.01" oninput="calculateAll()" class="input-field">
+            </div>
+            <div>
+                <label class="input-label">Tebal Pelat (cm)</label>
+                <input type="number" id="dim3" value="12" step="0.1" oninput="calculateAll()" class="input-field">
+            </div>
+        `;
+    } else if (type === 'beam') {
+        container.innerHTML = `
+            <div>
+                <label class="input-label">Panjang / Tinggi (meter)</label>
+                <input type="number" id="dim1" value="4" step="0.01" oninput="calculateAll()" class="input-field">
+            </div>
+            <div>
+                <label class="input-label">Lebar Penampang (cm)</label>
+                <input type="number" id="dim2" value="20" step="0.1" oninput="calculateAll()" class="input-field">
+            </div>
+            <div>
+                <label class="input-label">Tinggi Penampang (cm)</label>
+                <input type="number" id="dim3" value="30" step="0.1" oninput="calculateAll()" class="input-field">
+            </div>
+        `;
+    } else if (type === 'column_round') {
+        container.innerHTML = `
+            <div>
+                <label class="input-label">Diameter Kolom (cm)</label>
+                <input type="number" id="dim1" value="30" step="0.1" oninput="calculateAll()" class="input-field">
+            </div>
+            <div>
+                <label class="input-label">Tinggi Kolom (meter)</label>
+                <input type="number" id="dim2" value="3.5" step="0.01" oninput="calculateAll()" class="input-field">
+            </div>
+        `;
+    }
+    calculateAll();
+}
+
+// Fungsi Utama Perhitungan Volume, Material, dan RAB
+function calculateAll() {
+    const type = document.getElementById('elementType').value;
+    const count = parseFloat(document.getElementById('unitCount').value) || 0;
+    const d1 = parseFloat(document.getElementById('dim1')?.value) || 0;
+    const d2 = parseFloat(document.getElementById('dim2')?.value) || 0;
+    const d3 = parseFloat(document.getElementById('dim3')?.value) || 0;
+    
+    let netVolume = 0;
+    let dimSummary = "";
+
+    if (type === 'slab') {
+        netVolume = d1 * d2 * (d3 / 100) * count;
+        dimSummary = `Pelat ${d1}m x ${d2}m x ${d3}cm (${count} unit)`;
+    } else if (type === 'beam') {
+        netVolume = d1 * (d2 / 100) * (d3 / 100) * count;
+        dimSummary = `Balok/Kolom ${d2}x${d3}cm, P=${d1}m (${count} unit)`;
+    } else if (type === 'column_round') {
+        const radiusM = (d1 / 100) / 2;
+        netVolume = Math.PI * Math.pow(radiusM, 2) * d2 * count;
+        dimSummary = `Kolom Bulat D=${d1}cm, T=${d2}m (${count} unit)`;
+    }
+
+    const wastePct = parseFloat(document.getElementById('wasteFactor').value) || 0;
+    const totalVolume = netVolume * (1 + (wastePct / 100));
+
+    const grade = document.getElementById('concreteGrade').value;
+    const mix = sniMixData[grade];
+    const bagWeight = parseFloat(document.getElementById('cementBagWeight').value);
+
+    // Perhitungan Kebutuhan Material
+    const cementKg = totalVolume * mix.cement;
+    const cementBags = Math.ceil(cementKg / bagWeight);
+
+    const sandKg = totalVolume * mix.sand;
+    const sandM3 = sandKg / 1400;
+
+    const gravelKg = totalVolume * mix.gravel;
+    const gravelM3 = gravelKg / 1350;
+
+    const waterLiter = totalVolume * mix.water;
+
+    // Perhitungan Biaya
+    const pCement = parseFloat(document.getElementById('priceCement').value) || 0;
+    const pSand = parseFloat(document.getElementById('priceSand').value) || 0;
+    const pGravel = parseFloat(document.getElementById('priceGravel').value) || 0;
+
+    const costCement = cementBags * pCement;
+    const costSand = sandM3 * pSand;
+    const costGravel = gravelM3 * pGravel;
+    const totalCost = costCement + costSand + costGravel;
+
+    // Tampilkan Hasil ke Layar
+    document.getElementById('resTotalVolume').innerText = totalVolume.toFixed(2);
+    document.getElementById('resNetVolume').innerText = `Volume Bersih: ${netVolume.toFixed(2)} m³ (+${wastePct}% waste)`;
+
+    document.getElementById('resCementKg').innerText = `${cementKg.toFixed(1)} kg`;
+    document.getElementById('resCementBags').innerText = `${cementBags} Zak (${bagWeight}kg)`;
+    document.getElementById('resCostCement').innerText = formatRupiah(costCement);
+
+    document.getElementById('resSandKg').innerText = `${sandKg.toFixed(1)} kg`;
+    document.getElementById('resSandM3').innerText = `${sandM3.toFixed(2)} m³`;
+    document.getElementById('resCostSand').innerText = formatRupiah(costSand);
+
+    document.getElementById('resGravelKg').innerText = `${gravelKg.toFixed(1)} kg`;
+    document.getElementById('resGravelM3').innerText = `${gravelM3.toFixed(2)} m³`;
+    document.getElementById('resCostGravel').innerText = formatRupiah(costGravel);
+
+    document.getElementById('resWaterLiter').innerText = `${Math.round(waterLiter)} Liter`;
+    document.getElementById('resTotalCost').innerText = formatRupiah(totalCost);
+
+    // Simpan Data untuk Laporan PDF
+    latestCalculation = {
+        projectName: document.getElementById('projectName').value || "Tanpa Nama",
+        projectLocation: document.getElementById('projectLocation').value || "-",
+        dimSummary,
+        gradeLabel: mix.label,
+        wastePct,
+        netVolume: netVolume.toFixed(2),
+        totalVolume: totalVolume.toFixed(2),
+        cementBags: `${cementBags} Zak (${bagWeight} kg)`,
+        cementKg: `${cementKg.toFixed(1)} kg`,
+        costCement: formatRupiah(costCement),
+        sandM3: `${sandM3.toFixed(2)} m³`,
+        sandKg: `${sandKg.toFixed(1)} kg`,
+        costSand: formatRupiah(costSand),
+        gravelM3: `${gravelM3.toFixed(2)} m³`,
+        gravelKg: `${gravelKg.toFixed(1)} kg`,
+        costGravel: formatRupiah(costGravel),
+        waterLiter: `${Math.round(waterLiter)} Liter`,
+        totalCost: formatRupiah(totalCost)
+    };
+}
+
+// Fungsi Ekspor ke File PDF
+function exportToPDF() {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+
+    // Header Dokumen
+    doc.setFillColor(15, 23, 42);
+    doc.rect(0, 0, 210, 32, 'F');
+    
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(16);
+    doc.setFont("helvetica", "bold");
+    doc.text("LAPORAN KALKULASI BETON & RAB", 14, 15);
+    
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(251, 191, 36);
+    doc.text("Kalkulator Beton v7.0 Pro - Standar Mix Design SNI", 14, 22);
+
+    // Informasi Proyek
+    doc.setTextColor(30, 41, 59);
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "bold");
+    doc.text("Informasi Proyek:", 14, 42);
+    
+    doc.setFont("helvetica", "normal");
+    doc.text(`Nama Proyek : ${latestCalculation.projectName}`, 14, 48);
+    doc.text(`Lokasi      : ${latestCalculation.projectLocation}`, 14, 54);
+    doc.text(`Elemen      : ${latestCalculation.dimSummary}`, 14, 60);
+    doc.text(`Mutu Beton  : ${latestCalculation.gradeLabel}`, 14, 66);
+    doc.text(`Volume Total: ${latestCalculation.totalVolume} m³ (Bersih: ${latestCalculation.netVolume} m³ + Waste ${latestCalculation.wastePct}%)`, 14, 72);
+
+    // Tabel Kebutuhan Material & RAB
+    doc.autoTable({
+        startY: 80,
+        head: [['No', 'Jenis Material', 'Kebutuhan (Berat)', 'Volume / Kemasan', 'Estimasi Biaya']],
+        body: [
+            ['1', 'Semen Portland', latestCalculation.cementKg, latestCalculation.cementBags, latestCalculation.costCement],
+            ['2', 'Pasir Beton', latestCalculation.sandKg, latestCalculation.sandM3, latestCalculation.costSand],
+            ['3', 'Kerikil / Batu Split', latestCalculation.gravelKg, latestCalculation.gravelM3, latestCalculation.costGravel],
+            ['4', 'Air Kerja', '-', latestCalculation.waterLiter, 'Rp 0'],
+        ],
+        foot: [['', 'TOTAL ESTIMASI BIAYA MATERIAL', '', '', latestCalculation.totalCost]],
+        theme: 'grid',
+        headStyles: { fillColor:, textColor:, fontStyle: 'bold' },
+        footStyles: { fillColor:, textColor:, fontStyle: 'bold' },
+        styles: { fontSize: 9, cellPadding: 3 }
+    });
+
+    // Catatan Kaki
+    const finalY = doc.lastAutoTable.finalY + 12;
+    doc.setFontSize(8);
+    doc.setTextColor(100, 116, 139);
+    doc.text("Catatan: Perhitungan mengacu pada koefisien SNI 7394:2008. Harga aktual mengikuti lokasi proyek.", 14, finalY);
+
+    // Unduh File PDF
+    const fileName = `RAB_Beton_${latestCalculation.projectName.replace(/\s+/g, '_')}.pdf`;
+    doc.save(fileName);
+}
+
+// Jalankan Saat Halaman Selesai Dimuat
+window.onload = updateFormFields;
